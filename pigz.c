@@ -548,6 +548,7 @@ local struct {
     char *name;             // name for gzip or zip header
     char *alias;            // name for zip header when input is stdin
     char *comment;          // comment for gzip or zip header.
+    char *output;           // output path
     time_t mtime;           // time stamp from input file for gzip header
     int list;               // true to list files instead of compress
     int first;              // true if we need to print listing header
@@ -4102,36 +4103,44 @@ local void process(char *path) {
                           " (use -f to force)");
     }
     else {
-        char *to = g.inf, *sufx = "";
-        size_t pre = 0;
+        if (g.output == NULL) {
+            // construct output path
+            char *to = g.inf, *sufx = "";
+            size_t pre = 0;
 
-        // select parts of the output file name
-        if (g.decode) {
-            // for -dN or -dNT, use the path from the input file and the name
-            // from the header, stripping any path in the header name
-            if ((g.headis & 1) != 0 && g.hname != NULL) {
-                pre = (size_t)(justname(g.inf) - g.inf);
-                to = justname(g.hname);
-                len = strlen(to);
+            // select parts of the output file name
+            if (g.decode) {
+                // for -dN or -dNT, use the path from the input file and the
+                // name from the header, stripping any path in the header name
+                if ((g.headis & 1) != 0 && g.hname != NULL) {
+                    pre = (size_t)(justname(g.inf) - g.inf);
+                    to = justname(g.hname);
+                    len = strlen(to);
+                }
+                // for -d or -dNn, replace abbreviated suffixes
+                else if (strcmp(to + len, ".tgz") == 0)
+                    sufx = ".tar";
             }
-            // for -d or -dNn, replace abbreviated suffixes
-            else if (strcmp(to + len, ".tgz") == 0)
-                sufx = ".tar";
-        }
-        else
-            // add appropriate suffix when compressing
-            sufx = g.sufx;
+            else
+                // add appropriate suffix when compressing
+                sufx = g.sufx;
 
-        // create output file and open to write, overwriting any existing file
-        // of the same name only if requested with --force or -f
-        g.outf = alloc(NULL, pre + len + strlen(sufx) + 1);
-        memcpy(g.outf, g.inf, pre);
-        memcpy(g.outf + pre, to, len);
-        strcpy(g.outf + pre + len, sufx);
-        g.outd = open(g.outf, O_CREAT | O_TRUNC | O_WRONLY |
-                              (g.force ? 0 : O_EXCL), 0600);
+            // create output file and open to write, overwriting any existing
+            // file of the same name only if requested with --force or -f
+            g.outf = alloc(NULL, pre + len + strlen(sufx) + 1);
+            memcpy(g.outf, g.inf, pre);
+            memcpy(g.outf + pre, to, len);
+            strcpy(g.outf + pre + len, sufx);
+        }
+        else {
+            // use provided output path
+            g.outf = alloc(NULL, strlen(g.output) + 1);
+            strcpy(g.outf, g.output);
+        }
 
         // if it exists and wasn't forced, give the user a chance to overwrite
+        g.outd = open(g.outf, O_CREAT | O_TRUNC | O_WRONLY |
+                      (g.force ? 0 : O_EXCL), 0600);
         if (g.outd < 0 && errno == EEXIST) {
             int overwrite = 0;
             if (isatty(0) && g.verbosity) {
@@ -4213,7 +4222,7 @@ local void process(char *path) {
         g.outd = -1;            // now prevent deletion on interrupt
         if (g.ind != 0) {
             copymeta(g.inf, g.outf);
-            if (!g.keep) {
+            if (!g.keep && !g.output) {
                 if (st.st_nlink > 1 && !g.force)
                     complain("%s has hard links -- not unlinking", g.inf);
                 else
@@ -4267,6 +4276,7 @@ local char *helptext[] = {
 "  -M, --time           Store or restore mod time",
 "  -n, --no-name        Do not store or restore file name or mod time",
 "  -N, --name           Store or restore file name and mod time",
+"  -o, --output ppp     Use ppp as the output path",
 #ifndef NOZOPFLI
 "  -O  --oneblock       Do not split into smaller blocks for -11",
 #endif
@@ -4355,6 +4365,7 @@ local void defaults(void) {
     g.pipeout = 0;                  // don't force output to stdout
     g.sufx = ".gz";                 // compressed file suffix
     g.comment = NULL;               // no comment
+    g.output = NULL;                // default output path
     g.decode = 0;                   // compress
     g.list = 0;                     // compress
     g.keep = 0;                     // delete input file once compressed
@@ -4378,7 +4389,7 @@ local char *longopts[][2] = {
     {"silent", "q"}, {"stdout", "c"}, {"suffix", "S"}, {"synchronous", "Y"},
     {"test", "t"}, {"time", "M"}, {"to-stdout", "c"}, {"uncompress", "d"},
     {"verbose", "v"}, {"version", "V"}, {"zip", "K"}, {"zlib", "z"},
-    {"huffman", "H"}, {"rle", "U"}};
+    {"huffman", "H"}, {"rle", "U"}, {"output", "o"}};
 #define NLOPTS (sizeof(longopts) / (sizeof(char *) << 1))
 
 // Either new buffer size, new compression level, or new number of processes.
@@ -4520,6 +4531,7 @@ local int option(char *arg) {
             case 'n':  g.headis = 0;  break;
             case 'T':
             case 'm':  g.headis &= ~0xa;  break;
+            case 'o':  get = 8;  break;
             case 'p':  get = 2;  break;
             case 'q':  g.verbosity = 0;  break;
             case 'r':  g.recurse = 1;  break;
@@ -4535,7 +4547,7 @@ local int option(char *arg) {
             return 1;
     }
 
-    // process option parameter for -b, -p, -A, -S, -I, or -J
+    // process option parameter for -b, -o, -p, -A, -C, -S, -I, or -J
     if (get) {
         size_t n;
 
@@ -4580,6 +4592,8 @@ local int option(char *arg) {
 #endif
         else if (get == 7)
             g.comment = arg;                    // header comment
+        else if (get == 8)
+            g.output = arg;                     // output path
         get = 0;
         return 1;
     }
@@ -4711,6 +4725,8 @@ int main(int argc, char **argv) {
             else if (option(argv[n]))   // process argument
                 argv[n] = NULL;         // remove if option
         option(NULL);                   // check for missing parameter
+        if (g.pipeout && g.output != NULL)
+            throw(EINVAL, "-o (--output) conflicts with -c (--stdout)");
 
         // process command-line filenames
         done = 0;
