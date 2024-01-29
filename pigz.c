@@ -4683,7 +4683,8 @@ int main(int argc, char **argv) {
         }
 
         // decompress if named "unpigz" or "gunzip", to stdout if "*cat"
-        if (strcmp(g.prog, "unpigz") == 0 || strcmp(g.prog, "gunzip") == 0) {
+        if (strncmp(g.prog, "unpigz", 6) == 0 ||
+            strncmp(g.prog, "gunzip", 6) == 0) {
             if (!g.decode)
                 g.headis >>= 2;
             g.decode = 1;
