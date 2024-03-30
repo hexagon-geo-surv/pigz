@@ -346,7 +346,10 @@
 // Portability defines.
 #define _FILE_OFFSET_BITS 64            // Use large file functions
 #define _LARGE_FILES                    // Same thing for AIX
-#define _XOPEN_SOURCE 700               // For POSIX 2008
+#if !defined(__APPLE__) && !defined(__sun)
+#  define _XOPEN_SOURCE 700
+#  define _POSIX_C_SOURCE 200809L
+#endif
 
 // Included headers and what is expected from each.
 #include <stdio.h>      // fflush(), fprintf(), fputs(), getchar(), putc(),
@@ -364,8 +367,9 @@
 #include <signal.h>     // signal(), SIGINT
 #include <sys/types.h>  // ssize_t
 #include <sys/stat.h>   // chmod(), stat(), fstat(), lstat(), struct stat,
-                        // S_IFDIR, S_IFLNK, S_IFMT, S_IFREG
-#include <sys/time.h>   // utimes(), gettimeofday(), struct timeval
+                        // S_IFDIR, S_IFLNK, S_IFMT, S_IFREG,
+                        // utimensat(), struct timespec
+#include <sys/time.h>   // gettimeofday(), struct timeval
 #include <unistd.h>     // unlink(), _exit(), read(), write(), close(),
                         // lseek(), isatty(), chown(), fsync()
 #include <fcntl.h>      // open(), O_CREAT, O_EXCL, O_RDONLY, O_TRUNC,
@@ -404,13 +408,18 @@
 #  include <sys/pstat.h>
 #endif
 
+#ifdef __APPLE__
+#  define st_atim st_atimespec
+#  define st_mtim st_mtimespec
+#endif
+
 #ifndef S_IFLNK
 #  define S_IFLNK 0
 #endif
 
 #ifdef __MINGW32__
 #  define chown(p,o,g) 0
-#  define utimes(p,t)  0
+#  define utimensat(d,p,t,f) 0
 #  define lstat(p,s)   stat(p,s)
 #  define _exit(s)     exit(s)
 #endif
@@ -3857,7 +3866,7 @@ local char *justname(char *path) {
 // if allowed), and the access and modify times are copied.
 local int copymeta(char *from, char *to) {
     struct stat st;
-    struct timeval times[2];
+    struct timespec times[2];
 
     // get all of from's Unix meta data, return if not a regular file
     if (stat(from, &st) != 0 || (st.st_mode & S_IFMT) != S_IFREG)
@@ -3870,23 +3879,23 @@ local int copymeta(char *from, char *to) {
     ret += chown(to, st.st_uid, st.st_gid);
 
     // copy access and modify times, ignore errors
-    times[0].tv_sec = st.st_atime;
-    times[0].tv_usec = 0;
-    times[1].tv_sec = st.st_mtime;
-    times[1].tv_usec = 0;
-    ret += utimes(to, times);
+    times[0].tv_sec = st.st_atim.tv_sec;
+    times[0].tv_nsec = st.st_atim.tv_nsec;
+    times[1].tv_sec = st.st_mtim.tv_sec;
+    times[1].tv_nsec = st.st_mtim.tv_nsec;
+    ret += utimensat(AT_FDCWD, to, times, 0);
     return ret;
 }
 
 // Set the access and modify times of fd to t.
 local void touch(char *path, time_t t) {
-    struct timeval times[2];
+    struct timespec times[2];
 
     times[0].tv_sec = t;
-    times[0].tv_usec = 0;
+    times[0].tv_nsec = 0;
     times[1].tv_sec = t;
-    times[1].tv_usec = 0;
-    (void)utimes(path, times);
+    times[1].tv_nsec = 0;
+    (void)utimensat(AT_FDCWD, path, times, 0);
 }
 
 // Request that all data buffered by the operating system for g.outd be written
