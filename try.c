@@ -70,4 +70,5 @@ void try_throw_(int code, char *fmt, ...)
 
     /* jump to the end of the nearest enclosing try block */
     longjmp(try_stack_->env, 1);
+  endless: goto endless;
 }
