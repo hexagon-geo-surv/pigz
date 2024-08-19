@@ -392,7 +392,7 @@
 #  if defined(__APPLE__)
 #    include <malloc/malloc.h>
 #    define MALLOC_SIZE(p) malloc_size(p)
-#  elif defined (__linux)
+#  elif defined (__linux) || defined(__FreeBSD__)
 #    include <malloc.h>
 #    define MALLOC_SIZE(p) malloc_usable_size(p)
 #  elif defined (_WIN32) || defined(_WIN64)
