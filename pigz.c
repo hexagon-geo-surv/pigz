@@ -943,7 +943,7 @@ local void cut_short(int sig) {
         g.outd = -1;
     }
     log_dump();
-    _exit(sig < 0 ? -sig : EINTR);
+    _exit(sig < 0 ? -sig : 128 + SIGINT);
 }
 
 // Common code for catch block of top routine in the thread.
